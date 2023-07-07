@@ -54,7 +54,7 @@ where
     }
 
     pub fn range_len(&self) -> usize {
-        self.end.saturating_sub(self.start)
+        self.end.saturating_sub(self.start) as usize
     }
 
     pub fn leftmost_right_sibling(&self) -> Option<&M::Output> {
