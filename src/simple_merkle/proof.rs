@@ -34,7 +34,7 @@ where
         let tree = MerkleTree::<NoopDb, M>::new();
         let mut siblings = self.siblings.iter().collect();
 
-        if leaf_hashes.len() != (self.end - self.start) as usize {
+        if leaf_hashes.len() != self.range_len() {
             return Err(RangeProofError::WrongAmountOfLeavesProvided);
         }
 
@@ -51,6 +51,14 @@ where
 
     pub fn end_idx(&self) -> u32 {
         self.end
+    }
+
+    pub fn range_len(&self) -> usize {
+        if self.start < self.end {
+            (self.end - self.start) as usize
+        } else {
+            0
+        }
     }
 
     pub fn leftmost_right_sibling(&self) -> Option<&M::Output> {
