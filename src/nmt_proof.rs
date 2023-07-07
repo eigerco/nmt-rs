@@ -40,8 +40,7 @@ where
         raw_leaves: &[impl AsRef<[u8]>],
         namespace: NamespaceId<NS_ID_SIZE>,
     ) -> Result<(), RangeProofError> {
-        let proof_len = self.end_idx() - self.start_idx();
-        if self.is_of_presence() && raw_leaves.len() != proof_len as usize {
+        if self.is_of_presence() && raw_leaves.len() != self.range_len() {
             return Err(RangeProofError::WrongAmountOfLeavesProvided);
         }
 
@@ -62,8 +61,7 @@ where
             return Err(RangeProofError::MalformedProof);
         };
 
-        let proof_len = self.end_idx() - self.start_idx();
-        if raw_leaves.len() != proof_len as usize {
+        if raw_leaves.len() != self.range_len() {
             return Err(RangeProofError::WrongAmountOfLeavesProvided);
         }
 
@@ -96,25 +94,27 @@ where
         }
     }
 
-    pub fn siblings(&self) -> &[NamespacedHash<NS_ID_SIZE>] {
+    fn merkle_proof(&self) -> &Proof<M> {
         match self {
             NamespaceProof::AbsenceProof { proof, .. }
-            | NamespaceProof::PresenceProof { proof, .. } => proof.siblings(),
+            | NamespaceProof::PresenceProof { proof, .. } => proof,
         }
+    }
+
+    pub fn siblings(&self) -> &[NamespacedHash<NS_ID_SIZE>] {
+        self.merkle_proof().siblings()
     }
 
     pub fn start_idx(&self) -> u32 {
-        match self {
-            NamespaceProof::AbsenceProof { proof, .. }
-            | NamespaceProof::PresenceProof { proof, .. } => proof.start_idx(),
-        }
+        self.merkle_proof().start_idx()
     }
 
     pub fn end_idx(&self) -> u32 {
-        match self {
-            NamespaceProof::AbsenceProof { proof, .. }
-            | NamespaceProof::PresenceProof { proof, .. } => proof.end_idx(),
-        }
+        self.merkle_proof().end_idx()
+    }
+
+    fn range_len(&self) -> usize {
+        self.merkle_proof().range_len()
     }
 
     pub fn leftmost_right_sibling(&self) -> Option<&NamespacedHash<NS_ID_SIZE>> {
