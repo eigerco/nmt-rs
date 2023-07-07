@@ -1,5 +1,3 @@
-// #![feature(slice_take)]
-
 use std::{collections::HashMap, ops::Range};
 
 pub use nmt_proof::NamespaceProof;
@@ -271,15 +269,7 @@ where
         }
 
         match proof {
-            NamespaceProof::AbsenceProof {
-                proof:
-                    Proof {
-                        siblings,
-                        start_idx,
-                    },
-                ignore_max_ns: _,
-                leaf,
-            } => {
+            NamespaceProof::AbsenceProof { leaf, .. } => {
                 if !root.contains(namespace) {
                     return Ok(());
                 }
@@ -292,9 +282,10 @@ where
                 if namespace >= leaf.min_namespace() {
                     return Err(RangeProofError::MalformedProof);
                 }
-                let num_left_siblings = compute_num_left_siblings(*start_idx as usize);
+                let num_left_siblings = compute_num_left_siblings(proof.start_idx() as usize);
 
                 // Check that the closest sibling actually follows the namespace
+                let siblings = proof.siblings();
                 if siblings.len() > num_left_siblings {
                     let leftmost_right_sibling = &siblings[num_left_siblings];
                     if leftmost_right_sibling.min_namespace() <= namespace {
@@ -303,28 +294,29 @@ where
                 }
                 // Then, check that the root is real
                 let mut siblings = siblings.iter().collect();
-                self.inner
-                    .check_range_proof(root, &[leaf], &mut siblings, *start_idx as usize)?;
+                self.inner.check_range_proof(
+                    root,
+                    &[leaf],
+                    &mut siblings,
+                    proof.start_idx() as usize,
+                )?;
             }
-            NamespaceProof::PresenceProof {
-                proof:
-                    Proof {
-                        siblings,
-                        start_idx,
-                    },
-                ignore_max_ns: _,
-            } => {
+            NamespaceProof::PresenceProof { .. } => {
                 if !root.contains(namespace) {
                     return Err(RangeProofError::TreeDoesNotContainLeaf);
                 }
-                let mut siblings = siblings.iter().collect();
+                let mut siblings = proof.siblings().iter().collect();
                 let leaf_hashes: Vec<NamespacedHash<NS_ID_SIZE>> = raw_leaves
                     .iter()
                     .map(|data| NamespacedHash::hash_leaf(data.as_ref(), namespace))
                     .collect();
-                if let RangeProofType::Partial =
-                    self.check_range_proof(root, &leaf_hashes, &mut siblings, *start_idx as usize)?
-                {
+                let proof_type = self.check_range_proof(
+                    root,
+                    &leaf_hashes,
+                    &mut siblings,
+                    proof.start_idx() as usize,
+                )?;
+                if proof_type == RangeProofType::Partial {
                     return Err(RangeProofError::MissingLeaf);
                 }
             }
@@ -438,6 +430,31 @@ mod tests {
                 NamespaceProof::AbsenceProof { leaf: None, .. }
             ));
         }
+    }
+
+    #[test]
+    fn test_wrong_amount_of_leaves() {
+        let mut tree = tree_from_namespace_ids::<8>(&[1, 2, 2, 2, 3, 4, 5, 6]);
+        let namespace = ns_id_from_u64(2);
+        let proof = tree.get_namespace_proof(namespace);
+
+        let leaves = [b"leaf_1", b"leaf_2", b"leaf_3", b"leaf_4"];
+
+        for leaves in [&leaves[..], &leaves[..2]] {
+            proof
+                .verify_complete_namespace(&tree.root(), leaves, namespace)
+                .unwrap_err();
+            proof
+                .verify_range(&tree.root(), leaves, namespace)
+                .unwrap_err();
+        }
+
+        proof
+            .verify_complete_namespace(&tree.root(), &leaves[..3], namespace)
+            .unwrap();
+        proof
+            .verify_range(&tree.root(), &leaves[..3], namespace)
+            .unwrap();
     }
 
     /// Builds a tree with n leaves, and then creates and checks proofs of all

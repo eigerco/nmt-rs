@@ -29,8 +29,9 @@ pub enum NamespaceProof<M: MerkleHash, const NS_ID_SIZE: usize> {
     },
 }
 
-impl<M: NamespaceMerkleHasher<Output = NamespacedHash<NS_ID_SIZE>>, const NS_ID_SIZE: usize>
-    NamespaceProof<M, NS_ID_SIZE>
+impl<M, const NS_ID_SIZE: usize> NamespaceProof<M, NS_ID_SIZE>
+where
+    M: NamespaceMerkleHasher<Output = NamespacedHash<NS_ID_SIZE>>,
 {
     /// Verify that the provided *raw* leaves occur in the provided namespace, using this proof
     pub fn verify_complete_namespace(
@@ -39,6 +40,11 @@ impl<M: NamespaceMerkleHasher<Output = NamespacedHash<NS_ID_SIZE>>, const NS_ID_
         raw_leaves: &[impl AsRef<[u8]>],
         namespace: NamespaceId<NS_ID_SIZE>,
     ) -> Result<(), RangeProofError> {
+        let proof_len = self.end_idx() - self.start_idx();
+        if self.is_of_presence() && raw_leaves.len() != proof_len as usize {
+            return Err(RangeProofError::WrongAmountOfLeavesProvided);
+        }
+
         let tree = NamespaceMerkleTree::<NoopDb, M, NS_ID_SIZE>::with_hasher(
             M::with_ignore_max_ns(self.ignores_max_ns()),
         );
@@ -52,26 +58,25 @@ impl<M: NamespaceMerkleHasher<Output = NamespacedHash<NS_ID_SIZE>>, const NS_ID_
         raw_leaves: &[impl AsRef<[u8]>],
         leaf_namespace: NamespaceId<NS_ID_SIZE>,
     ) -> Result<(), RangeProofError> {
-        let NamespaceProof::PresenceProof {
-            proof: Proof {
-                siblings,
-                start_idx,
-            },
-            ..
-        } = self else {
-            return Err(RangeProofError::MalformedProof)
+        if self.is_of_absence() {
+            return Err(RangeProofError::MalformedProof);
         };
+
+        let proof_len = self.end_idx() - self.start_idx();
+        if raw_leaves.len() != proof_len as usize {
+            return Err(RangeProofError::WrongAmountOfLeavesProvided);
+        }
 
         let leaf_hashes: Vec<_> = raw_leaves
             .iter()
             .map(|data| NamespacedHash::hash_leaf(data.as_ref(), leaf_namespace))
             .collect();
-        let mut siblings = siblings.iter().collect();
+        let mut siblings = self.siblings().iter().collect();
         let tree = NamespaceMerkleTree::<NoopDb, M, NS_ID_SIZE>::with_hasher(
             M::with_ignore_max_ns(self.ignores_max_ns()),
         );
         tree.inner
-            .check_range_proof(root, &leaf_hashes, &mut siblings, *start_idx as usize)
+            .check_range_proof(root, &leaf_hashes, &mut siblings, self.start_idx() as usize)
     }
 
     pub fn convert_to_absence_proof(&mut self, leaf: NamespacedHash<NS_ID_SIZE>) {
@@ -93,27 +98,22 @@ impl<M: NamespaceMerkleHasher<Output = NamespacedHash<NS_ID_SIZE>>, const NS_ID_
 
     pub fn siblings(&self) -> &[NamespacedHash<NS_ID_SIZE>] {
         match self {
-            NamespaceProof::AbsenceProof {
-                proof: Proof { siblings, .. },
-                ..
-            }
-            | NamespaceProof::PresenceProof {
-                proof: Proof { siblings, .. },
-                ..
-            } => siblings,
+            NamespaceProof::AbsenceProof { proof, .. }
+            | NamespaceProof::PresenceProof { proof, .. } => proof.siblings(),
         }
     }
 
     pub fn start_idx(&self) -> u32 {
         match self {
-            NamespaceProof::AbsenceProof {
-                proof: Proof { start_idx, .. },
-                ..
-            }
-            | NamespaceProof::PresenceProof {
-                proof: Proof { start_idx, .. },
-                ..
-            } => *start_idx,
+            NamespaceProof::AbsenceProof { proof, .. }
+            | NamespaceProof::PresenceProof { proof, .. } => proof.start_idx(),
+        }
+    }
+
+    pub fn end_idx(&self) -> u32 {
+        match self {
+            NamespaceProof::AbsenceProof { proof, .. }
+            | NamespaceProof::PresenceProof { proof, .. } => proof.end_idx(),
         }
     }
 
@@ -147,5 +147,9 @@ impl<M: NamespaceMerkleHasher<Output = NamespacedHash<NS_ID_SIZE>>, const NS_ID_
             Self::AbsenceProof { .. } => true,
             Self::PresenceProof { .. } => false,
         }
+    }
+
+    pub fn is_of_presence(&self) -> bool {
+        !self.is_of_absence()
     }
 }

@@ -332,7 +332,8 @@ where
         // Calculate the root to ensure that the preimage db is populated
         let root = self.root();
         let mut proof = Vec::new();
-        let start_idx = leaf_range.start as u32;
+        let start = leaf_range.start as u32;
+        let end = leaf_range.end as u32;
         if leaf_range.end > self.leaves.len() {
             panic!(
                 "Index out of range: cannot access leaf {} in leaves array of size {}",
@@ -344,7 +345,8 @@ where
 
         Proof {
             siblings: proof,
-            start_idx,
+            start,
+            end,
         }
     }
 
